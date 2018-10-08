@@ -1,11 +1,46 @@
+# built application files
+*.ap_
+!gradle/wrapper/gradle-wrapper.jar
+
+# lint folder
+lint
+
+# files for the dex VM
+*.dex
+
+# Java class files
+*.class
+
+# generated files
+captures/
+bin/
+gen/
+classes/
+gen-external-apklibs/
+
+# maven output folder
+target
+
+# Local configuration file (sdk path, etc)
+local.properties
+
+# IntelliJ files
+.idea
 *.iml
-.gradle
-/local.properties
-/.idea/caches/build_file_checksums.ser
-/.idea/libraries
-/.idea/modules.xml
-/.idea/workspace.xml
+
+# OSX files
 .DS_Store
-/build
-/captures
-.externalNativeBuild
+
+# Windows files
+Thumbs.db
+
+# vi swap files
+*.swp
+
+# backup files
+*.bak
+
+# gradle directory
+.gradle
+build/
+
