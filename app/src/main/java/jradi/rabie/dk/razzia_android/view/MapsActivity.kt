@@ -1,9 +1,14 @@
 package jradi.rabie.dk.razzia_android.view
 
+import android.Manifest
 import android.app.IntentService
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.databinding.DataBindingUtil
 import android.os.Bundle
+import android.support.v4.app.ActivityCompat
+import android.support.v4.content.ContextCompat
+import android.util.Log
 import android.widget.Toast
 import com.google.android.gms.location.ActivityTransition
 import com.google.android.gms.location.ActivityTransitionResult
@@ -11,33 +16,48 @@ import com.google.android.gms.location.DetectedActivity
 import com.google.android.gms.maps.SupportMapFragment
 import jradi.rabie.dk.razzia_android.R
 import jradi.rabie.dk.razzia_android.databinding.ActivityMapsBinding
-import jradi.rabie.dk.razzia_android.model.*
+import jradi.rabie.dk.razzia_android.model.BikeActivityRecognitionClientProviderCreator
+import jradi.rabie.dk.razzia_android.model.CollisionDetectorService
+import jradi.rabie.dk.razzia_android.model.ConfigurationProvider
 import jradi.rabie.dk.razzia_android.viewmodel.GoogleMapsProvider
 import jradi.rabie.dk.razzia_android.viewmodel.MapViewModel
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.util.*
+import kotlin.coroutines.resume
+import kotlin.coroutines.suspendCoroutine
 
 
-//TODO consider making clean interfaces with code that is platform specific (for Android) so that we can reuse logic in a Kotlin Native project so we can support iOS devices
-
-//TODO implement a broadcast receiver that is started on each phone restart in order to subscripe to google activity recognition framework
-
-//FIXME calls to location and recognition services can throw an execption even if we check for permission. we need to wrap them in try catch
-
+//TODO implement a broadcast receiver that is started on each phone restart in order to subscribe to google activity recognition framework
 
 interface PermissionProviderInterface {
     suspend fun getLocationPermission(): Boolean
 }
 
-//TODO implement this class so we can handle permission requests
 abstract class PermissionRequestActivity : PermissionProviderInterface, ScopedAppActivity() {
+    private val LOCATION_PERMISSION_REQUEST_CODE = 12
+    private var onPermissionRequestHandled: (Boolean) -> Unit = {}
 
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode != LOCATION_PERMISSION_REQUEST_CODE) return
+        onPermissionRequestHandled((grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED))
+        onPermissionRequestHandled = {}
     }
 
-    override suspend fun getLocationPermission(): Boolean {
-        TODO("not implemented") //To change body of created functions use File | Settings | File Templates.
+    override suspend fun getLocationPermission() = suspendCoroutine<Boolean> { continuation ->
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+            // Permission is not granted
+            onPermissionRequestHandled = { isHandled ->
+                continuation.resume(isHandled)
+            }
+            ActivityCompat.requestPermissions(this,
+                    arrayOf(Manifest.permission.ACCESS_FINE_LOCATION),
+                    LOCATION_PERMISSION_REQUEST_CODE)
+
+        }
     }
 }
 
@@ -55,15 +75,19 @@ class MapsActivity : PermissionRequestActivity() {
 
         launch {
             try {
-                viewModel.init(googleMapsProvider = GoogleMapsProvider(mapFragment), bikeActivityRecognitionClientProviderCreator = BikeActivityRecognitionClientProviderCreator())
+                viewModel.init(googleMapsProvider = GoogleMapsProvider(mapFragment),
+                        permissionProvider = this@MapsActivity,
+                        bikeActivityRecognitionClientProviderCreator = BikeActivityRecognitionClientProviderCreator(activity = this@MapsActivity))
             } catch (e: CancellationException) {
                 showToast(e.message ?: "Something went wrong")
             }
         }
     }
 
-    private fun showToast(text: String) {
-        Toast.makeText(this, text, Toast.LENGTH_LONG).show()
+    private suspend fun showToast(text: String) {
+        withContext(Dispatchers.Main) {
+            Toast.makeText(this@MapsActivity, text, Toast.LENGTH_LONG).show()
+        }
     }
 
 }
@@ -71,13 +95,14 @@ class MapsActivity : PermissionRequestActivity() {
 class BikeActivityRecognitionService : IntentService("BikeActivityRecognitionService") {
     private val collisionDetectorProvider = ConfigurationProvider.config.getCollisionDetectorProvider(context = this)
 
-    private fun startCollisionDetectorService() = startService(Intent(this,CollisionDetectorService::class.java))
+    private fun startCollisionDetectorService() = startService(Intent(this, CollisionDetectorService::class.java))
 
     override fun onHandleIntent(incomingIntent: Intent?) {
         val intent = incomingIntent ?: return
         val result = ActivityTransitionResult.extractResult(intent) ?: return
         val events = result.transitionEvents ?: return
 
+        Log.d("[RecognitionService]", "events:\n" + events)
         //reverse the events order so first index contains latest event
         val bikeEvents = events.reversed().filter { it.activityType == DetectedActivity.ON_BICYCLE }
 
