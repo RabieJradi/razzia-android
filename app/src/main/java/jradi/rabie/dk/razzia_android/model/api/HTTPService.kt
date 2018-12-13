@@ -1,4 +1,4 @@
-package jradi.rabie.dk.razzia_android.api
+package jradi.rabie.dk.razzia_android.model.api
 
 import com.google.gson.GsonBuilder
 import com.jakewharton.retrofit2.adapter.kotlin.coroutines.CoroutineCallAdapterFactory
@@ -20,6 +20,9 @@ object HTTPService {
      */
     val service = createService()
 
+
+    private val ipAddress = "192.168.0.41"
+
     private fun createService(): HTTPServiceInterface {
 
         val gson = GsonBuilder()
@@ -31,7 +34,7 @@ object HTTPService {
                 .cache(null)
 
         val retrofit: Retrofit = Retrofit.Builder()
-                .baseUrl("http://localhost:8080/")
+                .baseUrl("http://$ipAddress:8080/")
                 .addCallAdapterFactory(CoroutineCallAdapterFactory())
                 .addConverterFactory(GsonConverterFactory.create(gson))
                 .client(clientBuilder.build())
