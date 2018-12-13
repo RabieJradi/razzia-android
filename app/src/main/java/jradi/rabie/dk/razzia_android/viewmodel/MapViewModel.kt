@@ -8,7 +8,9 @@ import jradi.rabie.dk.razzia_android.model.ActivityRecognitionClientProvider
 import jradi.rabie.dk.razzia_android.model.BikeActivityRecognitionClientProviderCreator
 import jradi.rabie.dk.razzia_android.model.ConfigurationProvider
 import jradi.rabie.dk.razzia_android.view.PermissionProviderInterface
-import kotlinx.coroutines.*
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlin.coroutines.resume
 import kotlin.coroutines.suspendCoroutine
 
@@ -22,8 +24,12 @@ import kotlin.coroutines.suspendCoroutine
 class MapViewModel {
 
     suspend fun init(googleMapsProvider: GoogleMapsProvider,
+                     permissionProvider: PermissionProviderInterface,
                      bikeActivityRecognitionClientProviderCreator: BikeActivityRecognitionClientProviderCreator) {
-        val mapPageProvider = MapPageProvider(googleMapsProvider = googleMapsProvider, ,activityRecognitionClientProvider = bikeActivityRecognitionClientProviderCreator.create())
+
+        val mapPageProvider = MapPageProvider(googleMapsProvider = googleMapsProvider,
+                permissionProvider = permissionProvider,
+                activityRecognitionClientProvider = bikeActivityRecognitionClientProviderCreator.create())
         try {
             mapPageProvider.plotMarkersOnMap()
         } catch (e: CancellationException) {
@@ -34,12 +40,32 @@ class MapViewModel {
 }
 
 
+class ThreadSafeGoogleMaps(private val googleMap: GoogleMap) {
+
+    suspend fun addMarkers(markerOptions: List<MarkerOptions>) {
+        withContext(Dispatchers.Main) {
+            markerOptions.forEach { googleMap.addMarker(it) }
+        }
+    }
+
+    suspend fun setIsMyLocationEnabled(): Boolean {
+        return withContext(Dispatchers.Main) {
+            try {
+                googleMap.isMyLocationEnabled = true
+                return@withContext true
+            } catch (e: SecurityException) {
+                return@withContext false
+            }
+        }
+    }
+}
+
 class GoogleMapsProvider(private val mapFragment: SupportMapFragment) {
 
     suspend fun getGoogleMaps() = withContext(Dispatchers.Main) {
-        suspendCoroutine<GoogleMap> { continuation ->
+        suspendCoroutine<ThreadSafeGoogleMaps> { continuation ->
             mapFragment.getMapAsync { googleMap ->
-                continuation.resume(googleMap)
+                continuation.resume(ThreadSafeGoogleMaps(googleMap))
             }
         }
     }
@@ -56,10 +82,9 @@ class MapPageProvider(private val googleMapsProvider: GoogleMapsProvider,
         val googleMap = googleMapsProvider.getGoogleMaps()
 
         val hasLocationPermission = permissionProvider.getLocationPermission()
-        if (hasLocationPermission) {
-            googleMap.isMyLocationEnabled = true
+        if (hasLocationPermission && googleMap.setIsMyLocationEnabled()) {
             activityRecognitionClientProvider.requestActivityUpdates()
-        } else{
+        } else {
             activityRecognitionClientProvider.stopActivityUpdates()
         }
         val mapMarkers = entriesProvider.getEntries().map {
@@ -67,8 +92,6 @@ class MapPageProvider(private val googleMapsProvider: GoogleMapsProvider,
             return@map MarkerOptions().position(latLng).title(it.description)
         }
 
-        //TODO note, not sure if we are allowed to do this on a background thread.
-        mapMarkers.forEach { googleMap.addMarker(it) }
+        googleMap.addMarkers(mapMarkers)
     }
-
 }
