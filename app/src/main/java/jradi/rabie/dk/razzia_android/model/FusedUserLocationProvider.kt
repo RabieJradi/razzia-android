@@ -4,11 +4,10 @@ import android.content.Context
 import android.location.Location
 import android.os.Looper
 import com.google.android.gms.location.*
-import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.Channel
-import java.util.*
-import java.util.concurrent.ConcurrentHashMap
 import kotlin.coroutines.Continuation
+import kotlin.coroutines.CoroutineContext
 import kotlin.coroutines.resume
 import kotlin.coroutines.suspendCoroutine
 
@@ -34,20 +33,28 @@ class FastLocationUpdates : LocationConfigurationRequestProviderInterface {
 }
 
 interface UserLocationProviderInterface {
-    suspend fun getCurrentLocation(): Location?
+    suspend fun getLastKnownLocation(): Location?
     suspend fun observeLocationUpdates(locationConfigurationRequestProvider: LocationConfigurationRequestProviderInterface = FastLocationUpdates()): Channel<Location>
 }
 
-class UserLocationProvider(context: Context) : UserLocationProviderInterface {
+/**
+ * Is responsible for providing user location updates by using Google's fused location API.
+ */
+class FusedUserLocationProvider(context: Context) : UserLocationProviderInterface, CoroutineScope {
 
+    override val coroutineContext: CoroutineContext = Job() + Dispatchers.Default
     private val fusedLocationClient: FusedLocationProviderClient = LocationServices.getFusedLocationProviderClient(context)
-    private var onGoingLocationCallbacks = ConcurrentHashMap<String, LocationCallback>()
 
-    override suspend fun getCurrentLocation(): Location? {
+    /**
+     * Gives you a single location (if any is known)
+     */
+    override suspend fun getLastKnownLocation(): Location? {
         return suspendCoroutine { cont ->
             try {
                 fusedLocationClient.lastLocation.addOnSuccessListener {
                     cont.resume(it)
+                }.addOnFailureListener {
+                    cont.resume(null)
                 }
             } catch (e: SecurityException) {
                 cont.resume(null)
@@ -55,47 +62,52 @@ class UserLocationProvider(context: Context) : UserLocationProviderInterface {
         }
     }
 
+    /**
+     * This method returns a channel immediately and sends location updates through the channel from the coroutine scope defined by this class.
+     *
+     * Note by making this method an extension function of CoroutineScope we make sure that if this method should fail, the parent coroutine will have to handle that or fail itself.
+     */
     override suspend fun observeLocationUpdates(locationConfigurationRequestProvider: LocationConfigurationRequestProviderInterface): Channel<Location> {
+        //NB: We could also have simplified this method using the produce coroutine builder
         val channel = Channel<Location>()
+        launch {
+            val currentKnownLocation: Location? = getLastKnownLocation()
+            if (currentKnownLocation != null) {
+                channel.send(currentKnownLocation)
+            }
 
-        val currentKnownLocation: Location? = getCurrentLocation()
-        if (currentKnownLocation != null) {
-            channel.send(currentKnownLocation)
-        }
-
-        val observerKey = UUID.randomUUID().toString()
-        val callback = UserLocationCallback()
-        onGoingLocationCallbacks.put(observerKey, callback)
-
-        try {
-            callback.handlerForEachLocation {
+            val callback = UserLocationCallback {
                 channel.send(it)
             }
-            fusedLocationClient.requestLocationUpdates(locationConfigurationRequestProvider.locationRequest(), callback, Looper.getMainLooper())
-        } catch (e: SecurityException) {
-            cancelChannelAndStopObserving(observerKey,channel)
-        } catch (e: CancellationException) {
-            cancelChannelAndStopObserving(observerKey,channel)
-        }
 
+            try {
+                callback.executeHandlerForEachLocationResult()
+                fusedLocationClient.requestLocationUpdates(locationConfigurationRequestProvider.locationRequest(), callback, Looper.getMainLooper()).addOnFailureListener {
+                    cleanup(callback, channel)
+                }
+            } catch (e: SecurityException) {
+                cleanup(callback, channel)
+            } catch (e: CancellationException) {
+                cleanup(callback, channel)
+            }
+        }
         return channel
     }
 
-    private fun cancelChannelAndStopObserving(observerKey: String, channel:Channel<Location>){
+    private fun cleanup(callback: UserLocationCallback, channel: Channel<Location>) {
         channel.cancel()
-        fusedLocationClient.removeLocationUpdates(onGoingLocationCallbacks[observerKey])
-        onGoingLocationCallbacks.remove(observerKey)
+        this.fusedLocationClient.removeLocationUpdates(callback)
     }
 }
 
 /**
  * This class is capable of turning asynchronous user location notifications into a suspending function that can execute a handler for each such value.
  */
-class UserLocationCallback : LocationCallback() {
+class UserLocationCallback(private val channelHandler: suspend (Location) -> Unit) : LocationCallback() {
 
     private var continuation: Continuation<Location>? = null
 
-    suspend fun handlerForEachLocation(channelHandler: suspend (Location) -> Unit) {
+    suspend fun executeHandlerForEachLocationResult() {
         try {
 
             while (true) {
