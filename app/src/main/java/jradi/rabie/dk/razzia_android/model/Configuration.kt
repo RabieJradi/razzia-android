@@ -2,6 +2,7 @@ package jradi.rabie.dk.razzia_android.model
 
 import android.content.Context
 import jradi.rabie.dk.razzia_android.BuildConfig
+import jradi.rabie.dk.razzia_android.mocked.MockedUserLocationProvider
 
 /**
  * @author rabie
@@ -15,16 +16,12 @@ object ConfigurationProvider {
     } else {
         TestConfig()
     }
-
-    fun createActivityRecognitionCacheProvider(context: Context): CacheProviderInterface {
-        return CacheProvider(cacheKey = CacheKey.ActivityRecognitionCache, context = context)
-    }
-    //TODO WARNING: does this singleton live even if the only thing that runs is an intent service? What happens when the Intent Service is shut down and GC'ed because it has run out of work?
 }
 
 interface Configuration {
     val detectionIntervalInMilliseconds: Long
     val entriesDataProvider: EntriesDataProviderInterface
+    val alertFilterProvider: AlertFilterProviderInterface
     val alertProvider: AlertProviderInterface
 
     fun createActivityRecognitionCacheProvider(context: Context): CacheProviderInterface
@@ -47,18 +44,17 @@ abstract class BaseProductionConfiguration : Configuration {
     override fun getUserLocationProvider(context: Context): UserLocationProviderInterface {
         synchronized(this) {
             return userLocationProvider ?: {
-                val localObject = UserLocationProvider(context)
+                val localObject = FusedUserLocationProvider(context)
                 userLocationProvider = localObject
                 localObject
             }.invoke()
         }
-
     }
 
     override fun getCollisionDetectorProvider(context: Context): CollisionDetectorProviderInterface {
         synchronized(this) {
             return collisionDetectorProvider ?: {
-                val localObject = CollisionDetectorProvider(locationProvider = getUserLocationProvider(context), entriesDataProvider = entriesDataProvider, alertProvider = alertProvider)
+                val localObject = CollisionDetectorProvider(locationProvider = getUserLocationProvider(context), entriesDataProvider = entriesDataProvider, alertFilterProvider = alertFilterProvider, fenceCollisionDetector = NaiveFenceCollisionDetector(), alertProvider = alertProvider)
                 collisionDetectorProvider = localObject
                 localObject
             }.invoke()
@@ -66,21 +62,38 @@ abstract class BaseProductionConfiguration : Configuration {
     }
 }
 
+/**
+ * Production setup
+ */
 class ProductionConfig : BaseProductionConfiguration() {
     override val detectionIntervalInMilliseconds = 30_000L
-
-    override val alertProvider = AlertProvider(AndroidSoundProvider())
     override val entriesDataProvider = EntriesDataProvider()
+    override val alertFilterProvider = AlertFilterProvider()
+    override val alertProvider = AndroidAlertProvider()
 }
 
+/**
+ * Debug setup
+ */
 class TestConfig : BaseProductionConfiguration() {
     override val detectionIntervalInMilliseconds = 1000L
-    override val alertProvider = AlertProvider(MockedSoundProvider())
     override val entriesDataProvider = MockedEntriesDataProvider()
+    override val alertFilterProvider = AlertFilterProvider()
+    override val alertProvider = MockedAlertProvider()
+
+    private var userLocationProvider: UserLocationProviderInterface? = null
 
     override fun createActivityRecognitionCacheProvider(context: Context): CacheProviderInterface {
         return CacheProvider(cacheKey = CacheKey.ActivityRecognitionCache, context = context)
     }
 
-    //TODO create a mock user location provider that emits fx 5 user location updates along a straight path hitting one or more fences.
+    override fun getUserLocationProvider(context: Context): UserLocationProviderInterface {
+        synchronized(this) {
+            return userLocationProvider ?: {
+                val localObject = MockedUserLocationProvider()
+                userLocationProvider = localObject
+                localObject
+            }.invoke()
+        }
+    }
 }
