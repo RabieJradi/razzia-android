@@ -45,10 +45,10 @@
         </activity>
 
         <service
-            android:name=".model.CollisionDetectorService"
+            android:name=".model.services.CollisionDetectorService"
             android:exported="false" />
         <service
-            android:name=".view.BikeActivityRecognitionService"
+            android:name=".model.services.BikeActivityRecognitionService"
             android:exported="false" />
     </application>
 
