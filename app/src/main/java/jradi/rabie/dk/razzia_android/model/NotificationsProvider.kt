@@ -14,8 +14,10 @@ import android.os.Build
 import android.support.v4.app.NotificationCompat
 import jradi.rabie.dk.razzia_android.R
 import jradi.rabie.dk.razzia_android.view.*
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
+import kotlinx.coroutines.*
+import java.util.*
+import kotlin.concurrent.timer
+import kotlin.concurrent.timerTask
 
 
 /**
@@ -23,29 +25,74 @@ import kotlinx.coroutines.withContext
  *
  *
  */
+private const val serviceChannelId = "patrulje_oste_kanalen"
+private const val alertChannelId = "oste_kanalen"
 
-interface AlertNotificationProviderInterface {
-    suspend fun alertUser()
+sealed class NotificationId(val value: Int) {
+    object Alert : NotificationId(1)
+    object Collision : NotificationId(2)
 }
 
-interface CollisionServiceNotificationProviderInterface {
+
+interface CollisionServiceNotificationPresenterInterface {
     suspend fun showServiceActiveNotification()
     suspend fun hideServiceActiveNotification()
 }
 
-class NotificationPresenter : AlertNotificationProviderInterface, CollisionServiceNotificationProviderInterface {
+class CollisionServiceNotificationPresenter : CollisionServiceNotificationPresenterInterface {
+
+    private val notificationManager = App.appContext.getSystemService(NOTIFICATION_SERVICE) as NotificationManager
+    private val notificationId = NotificationId.Collision.value
+
     override suspend fun showServiceActiveNotification() {
-        TODO("not implemented") //To change body of created functions use File | Settings | File Templates.
+        withContext(Dispatchers.Main) {
+            val mapsActivityIntent = Intent(App.appContext, MapsActivity::class.java)
+            //TODO fix bug with new task intent flag causing the app to open up on already existing instance
+            val mapsActivityPendingIntent = PendingIntent.getActivity(App.appContext, mapsActivityAlertNotificationIntentRequestCode, mapsActivityIntent, 0)
+
+            //Create notification channel so newer Android versions are supported
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                val notificationChannel = NotificationChannel(serviceChannelId, stringResource(R.string.notifications), NotificationManager.IMPORTANCE_HIGH).apply {
+                    description = stringResource(R.string.notifications)
+                }
+                notificationManager.createNotificationChannel(notificationChannel)
+            }
+
+            //Build the actual notification
+            val notificationBuilder = NotificationCompat.Builder(App.appContext, serviceChannelId).apply {
+                setContentIntent(mapsActivityPendingIntent)
+                setPriority(Notification.PRIORITY_MAX)
+                setAutoCancel(false)
+                setSmallIcon(jradi.rabie.dk.razzia_android.R.drawable.ic_launcher_foreground) //TODO replace with a proper icon
+                setTicker(stringResource(R.string.watching_your_back))
+                setContentTitle(stringResource(R.string.watching_your_back))
+                setContentText(stringResource(R.string.watching_your_back_description))
+
+            }
+
+            //Show the notification
+            notificationManager.notify(notificationId, notificationBuilder.build())
+        }
     }
 
     override suspend fun hideServiceActiveNotification() {
-        TODO("not implemented") //To change body of created functions use File | Settings | File Templates.
+        withContext(Dispatchers.Main) {
+            notificationManager.cancel(notificationId)
+        }
     }
+}
+
+
+interface AlertNotificationPresenterInterface {
+    suspend fun alertUser()
+}
+
+class AlertNotificationPresenter : AlertNotificationPresenterInterface {
 
     private val notificationManager = App.appContext.getSystemService(NOTIFICATION_SERVICE) as NotificationManager
-
-    private val channelId = "oste_kanalen"
-    private val alertNotificationId = 1
+    private val alertNotificationId = NotificationId.Alert.value
+    private val oneMinutesInMilliSec: Long = 60000
+    private var cleanupNotificationJob: Job? = null
 
     /**
      * Warn the user about incoming collision
@@ -58,11 +105,12 @@ class NotificationPresenter : AlertNotificationProviderInterface, CollisionServi
             val alertVibrationPattern = longArrayOf(0, 1000, 200, 200, 500, 1000, 200, 200, 500, 1000, 200, 200)
 
             val mapsActivityIntent = Intent(App.appContext, MapsActivity::class.java)
+            //TODO fix bug with new task intent flag causing the app to open up on already existing instance
             val mapsActivityPendingIntent = PendingIntent.getActivity(App.appContext, mapsActivityAlertNotificationIntentRequestCode, mapsActivityIntent, 0)
 
             //Create notification channel so newer Android versions are supported
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                val notificationChannel = NotificationChannel(channelId, stringResource(R.string.notifications), NotificationManager.IMPORTANCE_HIGH).apply {
+                val notificationChannel = NotificationChannel(alertChannelId, stringResource(R.string.notifications), NotificationManager.IMPORTANCE_HIGH).apply {
                     description = stringResource(R.string.notifications)
                     enableVibration(true)
                     vibrationPattern = alertVibrationPattern
@@ -72,7 +120,7 @@ class NotificationPresenter : AlertNotificationProviderInterface, CollisionServi
             }
 
             //Build the actual notification
-            val notificationBuilder = NotificationCompat.Builder(App.appContext, channelId).apply {
+            val notificationBuilder = NotificationCompat.Builder(App.appContext, alertChannelId).apply {
                 setContentIntent(mapsActivityPendingIntent)
                 setPriority(Notification.PRIORITY_MAX)
                 setSound(soundUri)
@@ -85,8 +133,16 @@ class NotificationPresenter : AlertNotificationProviderInterface, CollisionServi
 
             }
 
+            //Since we are about to show a new notification lets make sure to remove the old cleanup job
+            cleanupNotificationJob?.cancel()
+
             //Show the notification
             notificationManager.notify(alertNotificationId, notificationBuilder.build())
+
+            cleanupNotificationJob = launch {
+                delay(oneMinutesInMilliSec)
+                notificationManager.cancel(alertNotificationId)
+            }
         }
     }
 
@@ -104,42 +160,10 @@ class NotificationPresenter : AlertNotificationProviderInterface, CollisionServi
 
 }
 
-/*
- WORKING SOLUTION:
-
-    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                val notificationChannel = NotificationChannel(channelId, "My Notifications", NotificationManager.IMPORTANCE_MAX)
-
-                // Configure the notification channel.
-                notificationChannel.description = "Channel description"
-                notificationChannel.enableLights(true)
-                notificationChannel.lightColor = Color.RED
-                notificationChannel.vibrationPattern = longArrayOf(0, 1000, 500, 1000)
-                notificationChannel.enableVibration(true)
-                notificationManager.createNotificationChannel(notificationChannel)
-            }
-
-
-            val notificationBuilder = NotificationCompat.Builder(App.appContext, channelId)
-
-            notificationBuilder.setAutoCancel(true)
-                    .setDefaults(Notification.DEFAULT_ALL)
-                    .setWhen(System.currentTimeMillis())
-                    .setSmallIcon(jradi.rabie.dk.razzia_android.R.drawable.ic_launcher_foreground)
-                    .setTicker("Hearty365")
-                    //     .setPriority(Notification.PRIORITY_MAX)
-                    .setContentTitle("Default notification")
-                    .setContentText("Lorem ipsum dolor sit amet, consectetur adipiscing elit.")
-                    .setContentInfo("Info")
-
-            notificationManager.notify(/*notification id*/1, notificationBuilder.build())
- */
-
-
 /**
  * Class used for testing
  */
-class MockedAlertNotifcationProvider : AlertNotificationProviderInterface {
+class MockedAlertNotifcationPresenter : AlertNotificationPresenterInterface {
     suspend override fun alertUser() {
         logPrint("Oh no! The smell of cheese is closing in!")
     }
