@@ -1,5 +1,8 @@
 package jradi.rabie.dk.razzia_android.model.entities
 
+import android.location.Location
+import java.util.*
+
 /**
  * @author rabie
  *
@@ -21,6 +24,11 @@ data class Timestamp(val value: Long)
 
 data class GPSLocation(val latitude: Double,
                        val longitude: Double)
+
+fun GPSLocation.toLocation(): Location = Location(UUID.randomUUID().toString()).apply {
+    latitude = this@toLocation.latitude
+    longitude = this@toLocation.longitude
+}
 
 
 data class Hour(val value: Int)

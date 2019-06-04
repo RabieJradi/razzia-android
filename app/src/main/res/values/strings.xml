@@ -1,4 +1,10 @@
 <resources>
     <string name="app_name">Osteklokken</string>
     <string name="title_activity_maps">Osteklokken</string>
+    <string name="notifications">Klokken\'s notifikationer</string>
+    <string name="watch_out">Osten ligger på lur!</string>
+    <string name="watch_out_description">Osten ligger efter sigende på lur i området</string>
+
+    <string name="watching_your_back">Osteklokken til din hjælp</string>
+    <string name="watching_your_back_description">Osteklokken tjekker horisonten for ostepatruljen, så du kan trygt cykle videre</string>
 </resources>

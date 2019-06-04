@@ -1,5 +1,6 @@
 package jradi.rabie.dk.razzia_android.viewmodel
 
+import android.view.View
 import com.google.android.gms.maps.GoogleMap
 import com.google.android.gms.maps.SupportMapFragment
 import com.google.android.gms.maps.model.LatLng
@@ -22,20 +23,29 @@ import kotlin.coroutines.suspendCoroutine
 
 
 class MapViewModel {
+    lateinit var mapPageProvider : MapPageProvider
 
-    suspend fun init(googleMapsProvider: GoogleMapsProvider,
-                     permissionProvider: PermissionProviderInterface,
-                     bikeActivityRecognitionClientProviderCreator: BikeActivityRecognitionClientProviderCreator) {
+    fun init(googleMapsProvider: GoogleMapsProvider,
+                         permissionProvider: PermissionProviderInterface,
+                         bikeActivityRecognitionClientProviderCreator: BikeActivityRecognitionClientProviderCreator) {
 
-        val mapPageProvider = MapPageProvider(googleMapsProvider = googleMapsProvider,
+        mapPageProvider = MapPageProvider(googleMapsProvider = googleMapsProvider,
                 permissionProvider = permissionProvider,
                 activityRecognitionClientProvider = bikeActivityRecognitionClientProviderCreator.create())
+
+    }
+
+    suspend fun onResume(){
         try {
             mapPageProvider.plotMarkersOnMap()
         } catch (e: CancellationException) {
             //TODO show error state so user can hit retry
             throw e //re-throw exception so view can handle it too
         }
+    }
+
+    fun onAddButtonClicked(view: View){
+        //TODO switch to "add mode"
     }
 }
 

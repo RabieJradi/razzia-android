@@ -4,12 +4,14 @@ import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.databinding.DataBindingUtil
+import android.os.Build
 import android.os.Bundle
 import android.support.v4.app.ActivityCompat
 import android.support.v4.content.ContextCompat
 import android.util.Log
 import android.widget.Toast
 import com.google.android.gms.maps.SupportMapFragment
+import jradi.rabie.dk.razzia_android.BuildConfig
 import jradi.rabie.dk.razzia_android.R
 import jradi.rabie.dk.razzia_android.databinding.ActivityMapsBinding
 import jradi.rabie.dk.razzia_android.model.BikeActivityRecognitionClientProviderCreator
@@ -27,6 +29,7 @@ import kotlin.coroutines.suspendCoroutine
 //TODO implement a broadcast receiver that is started on each phone restart in order to subscribe to google activity recognition framework
 
 fun logPrint(message: String) {
+    if (BuildConfig.BUILD_TYPE == "release") return
     Log.d("Osteklokken", message)
 }
 
@@ -55,15 +58,17 @@ abstract class PermissionRequestActivity : PermissionProviderInterface, ScopedAp
                     arrayOf(Manifest.permission.ACCESS_FINE_LOCATION),
                     LOCATION_PERMISSION_REQUEST_CODE)
 
-        } else{
+        } else {
             continuation.resume(true)
         }
     }
 }
 
+const val mapsActivityAlertNotificationIntentRequestCode = 0
+
 class MapsActivity : PermissionRequestActivity() {
 
-    val viewModel = MapViewModel()
+    private val viewModel = MapViewModel()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -78,8 +83,12 @@ class MapsActivity : PermissionRequestActivity() {
                 permissionProvider = this@MapsActivity,
                 bikeActivityRecognitionClientProviderCreator = BikeActivityRecognitionClientProviderCreator(activity = this@MapsActivity))
 
-        //TODO delete this line of code
-        startService(Intent(this, CollisionDetectorService::class.java))
+        //TODO delete this test code
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            startForegroundService(Intent(App.appContext, CollisionDetectorService::class.java))
+        } else {
+            startService(Intent(App.appContext, CollisionDetectorService::class.java))
+        }
     }
 
     override fun onResume() {

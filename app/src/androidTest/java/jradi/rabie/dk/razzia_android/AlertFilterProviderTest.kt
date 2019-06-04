@@ -2,7 +2,6 @@ package jradi.rabie.dk.razzia_android
 
 import android.support.test.runner.AndroidJUnit4
 import jradi.rabie.dk.razzia_android.model.AlertFilterProvider
-import jradi.rabie.dk.razzia_android.model.MockedAlertProvider
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.*
@@ -22,7 +21,7 @@ class AlertFilterProviderTest {
     private val alertThresholdInSeconds = 1
     @Before
     fun setup() {
-        alertFilterProvider = AlertFilterProvider(MockedAlertProvider(), alertThresholdInSeconds)
+        alertFilterProvider = AlertFilterProvider(alertThresholdInSeconds)
     }
 
     @Test

@@ -2,8 +2,10 @@ package jradi.rabie.dk.razzia_android.model
 
 import android.location.Location
 import jradi.rabie.dk.razzia_android.model.entities.CircularFence
+import jradi.rabie.dk.razzia_android.model.entities.Id
 import jradi.rabie.dk.razzia_android.view.logPrint
 import kotlinx.coroutines.channels.Channel
+import java.util.concurrent.CancellationException
 
 
 interface CollisionDetectorProviderInterface {
@@ -11,16 +13,13 @@ interface CollisionDetectorProviderInterface {
     fun abort()
 }
 
-//TODO unit this this class with mocked location replay data. Make sure to have a test case where the API call also fail
 /**
  * Responsible for interacting with the AlertProvider should there be a collision between user location and an entry boundary
  */
 class CollisionDetectorProvider(private val locationProvider: UserLocationProviderInterface,
-                                private val entriesDataProvider: EntriesDataProviderInterface,
-                                private val alertFilterProvider: AlertFilterProviderInterface,
-                                private val fenceCollisionDetector: FenceCollisionDetectorInterface,
-                                private val alertProvider: AlertProviderInterface) : CollisionDetectorProviderInterface {
+                                private val locationObserverHandler: LocationObserverHandlerInterface) : CollisionDetectorProviderInterface {
 
+    //TODO OBS potential raceconditions with this channel variable
     private var channel: Channel<Location>? = null
 
     /**
@@ -31,18 +30,8 @@ class CollisionDetectorProvider(private val locationProvider: UserLocationProvid
         logPrint("[CollisionDetectorProvider] watch")
         val currentChannel = locationProvider.observeLocationUpdates()
         channel = currentChannel
-
-        //FIXME how do we handle a HTTP request failure? Should we try up to 3 times before returning completely from this watch method? Otherwise the service will get aborted.
-        //TODO currently if the API should fail, the enture suspend method fails and the service will get killed.
-        val entries = entriesDataProvider.getEntries()
         for (locationUpdate in currentChannel) {
-            val collisions = fenceCollisionDetector.findCollisions(entries.map { CircularFence(id = it.id, radiusInMeters = it.radiusInMeters, center = it.location) }, locationUpdate)
-            if (collisions.isNotEmpty()) {
-                if(alertFilterProvider.isAlertAllowed()){
-                    //TODO consider sending the distance to the closest collision so that we can display an informative push notification
-                    alertProvider.alertUser()
-                }
-            }
+            locationObserverHandler.checkForCollisions(locationUpdate = locationUpdate)
         }
     }
 
@@ -50,4 +39,48 @@ class CollisionDetectorProvider(private val locationProvider: UserLocationProvid
         logPrint("[CollisionDetectorProvider] abort called")
         channel?.cancel()
     }
+}
+
+sealed class CollisionCheckResult {
+    object DataProviderError : CollisionCheckResult()
+    object NoCollisions : CollisionCheckResult()
+    data class Collisions(val entityIds: List<Id>, val didAlertUser: Boolean) : CollisionCheckResult()
+}
+
+interface LocationObserverHandlerInterface {
+    suspend fun checkForCollisions(locationUpdate: Location): CollisionCheckResult
+}
+
+//TODO unit test this class
+/**
+ * This class is responsible for reacting on location updates by checking up on any collisions between user location and current entities and making sure to alert the user about that collision.
+ */
+class LocationObserverHandler(private val entriesDataProvider: EntriesDataProviderInterface,
+                              private val alertFilterProvider: AlertFilterProviderInterface,
+                              private val fenceCollisionDetector: FenceCollisionDetectorInterface,
+                              private val alertNotificationPresenter: AlertNotificationPresenterInterface) : LocationObserverHandlerInterface {
+
+    override suspend fun checkForCollisions(locationUpdate: Location): CollisionCheckResult {
+        logPrint("[CollisionDetectorProvider] checking for collisions")
+        try {
+            val entries = entriesDataProvider.getEntries()
+            val fences = entries.map { CircularFence(id = it.id, radiusInMeters = it.radiusInMeters, center = it.location) }
+            val collisions = fenceCollisionDetector.findCollisions(fences = fences, userLocation = locationUpdate)
+            if (collisions.isNotEmpty()) {
+                val shouldAlertUser = alertFilterProvider.isAlertAllowed()
+                if (shouldAlertUser) {
+                    //TODO consider sending the distance to the closest collision so that we can display an informative push notification. the returned list of collisions should be sorted so closest is first index
+                    alertNotificationPresenter.alertUser()
+                }
+                return CollisionCheckResult.Collisions(entityIds = collisions.map { it.id }, didAlertUser = shouldAlertUser)
+            }
+            return CollisionCheckResult.NoCollisions
+
+        } catch (e: CancellationException) {
+            //We caught an entry data provider error
+            logPrint("[CollisionDetectorProvider] CancellationException e=${e.toString()}")
+            return CollisionCheckResult.DataProviderError
+        }
+    }
+
 }

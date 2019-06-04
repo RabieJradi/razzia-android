@@ -2,13 +2,15 @@ package jradi.rabie.dk.razzia_android.model.services
 
 import android.app.IntentService
 import android.content.Intent
+import android.os.Build
 import com.google.android.gms.location.ActivityTransition
 import com.google.android.gms.location.ActivityTransitionEvent
 import com.google.android.gms.location.ActivityTransitionResult
 import com.google.android.gms.location.DetectedActivity
 import jradi.rabie.dk.razzia_android.model.ConfigurationProvider
 import jradi.rabie.dk.razzia_android.model.services.TransitionActivityRecognitionHelper.DerivedTransitionActivity
-import jradi.rabie.dk.razzia_android.model.services.TransitionActivityRecognitionHelper.SupportedActivityType.*
+import jradi.rabie.dk.razzia_android.model.services.TransitionActivityRecognitionHelper.SupportedActivityType.onBike
+import jradi.rabie.dk.razzia_android.view.App
 import jradi.rabie.dk.razzia_android.view.logPrint
 
 
@@ -19,9 +21,13 @@ import jradi.rabie.dk.razzia_android.view.logPrint
  */
 class BikeActivityRecognitionService : IntentService("BikeActivityRecognitionService") {
 
-    private val collisionDetectorProvider = ConfigurationProvider.config.getCollisionDetectorProvider(context = this)
+    private val collisionDetectorProvider = ConfigurationProvider.config.getCollisionDetectorProvider(context = App.appContext)
 
-    private fun startCollisionDetectorService() = startService(Intent(this, CollisionDetectorService::class.java))
+    private fun startCollisionDetectorService() = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+        startForegroundService(Intent(App.appContext, CollisionDetectorService::class.java))
+    } else {
+        startService(Intent(App.appContext, CollisionDetectorService::class.java))
+    }
 
     override fun onHandleIntent(incomingIntent: Intent?) {
         logPrint("[CollisionDetectorService] onHandleIntent called")
