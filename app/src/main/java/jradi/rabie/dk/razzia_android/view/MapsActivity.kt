@@ -108,5 +108,13 @@ class MapsActivity : PermissionRequestActivity() {
         }
     }
 
+    //TODO migrate support libraries to AndroidX
+
+    //TODO There will be a bug with posting an entry. just after posting, it will trigger the alarm if the user is on top of it!
+
+    //TODO support FAB + button that turns into a checkmark when your has chosen a point. Show a bottom sheet (that they can dismiss) where they can type in a description. Only post to API when entire process is done
+
+    //TODO support a local setting on a radius trigger value, or even a dynamic radius value that is porportional to your velocity (as you might be heading faster into trouble)
+
 }
 

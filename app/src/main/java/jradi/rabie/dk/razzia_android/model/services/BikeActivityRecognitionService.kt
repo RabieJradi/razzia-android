@@ -14,6 +14,9 @@ import jradi.rabie.dk.razzia_android.view.App
 import jradi.rabie.dk.razzia_android.view.logPrint
 
 
+//FIXME change to activity recognition: service should be started up based on an intent from a registered broadcast receiver so we don't have to have a service running all the time
+//https://stackoverflow.com/questions/17445765/android-activity-recognition-with-listener-or-broadcast-receiver
+
 /**
  * Notice that this service compared to CollisionDetectorService doesn't block the thread as we need to be able to handle new
  * activity events from the system. Therefore we don't use the blocking CollisionDetectorProvider#watch method. We instead
@@ -60,6 +63,8 @@ class BikeActivityRecognitionService : IntentService("BikeActivityRecognitionSer
         }
     }
 }
+
+//TODO to complement google's activity recognition we could implement our own system that 
 
 //TODO unit test this class
 /**

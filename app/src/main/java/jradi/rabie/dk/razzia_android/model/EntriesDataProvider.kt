@@ -37,6 +37,7 @@ class MockedEntriesDataProvider : EntriesDataProviderInterface {
 
 }
 
+//TODO consider wrapping each api call method in a 3 times try if the HTTP request should fail before throwing a canncelation exception.
 class EntriesDataProvider : EntriesDataProviderInterface {
 
     override suspend fun getEntries(): List<RazziaEntry> {
